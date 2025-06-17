@@ -55,7 +55,7 @@ class ProgressInfo:
     estimated_time_remaining: Optional[float] = None
 
 
-class DicomConverter(ABC):
+class BaseDICOMConverter(ABC):
     """DICOM转换器抽象基类"""
     
     def __init__(self, input_path: Union[str, Path], 

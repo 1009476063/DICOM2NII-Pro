@@ -19,12 +19,12 @@ from typing import List, Dict, Any, Optional, Tuple
 import pydicom
 from pydicom.errors import InvalidDicomError
 
-from .base import DicomConverter, ConversionResult
+from .base import BaseDICOMConverter, ConversionResult
 from ..exceptions import DicomReadError, DicomValidationError, ConversionError, ProcessingError
 from ...config.settings import ConversionSettings
 
 
-class CTConverter(DicomConverter):
+class CTConverter(BaseDICOMConverter):
     """CT影像转换器"""
     
     def __init__(self, input_path: Path, output_path: Path, 
