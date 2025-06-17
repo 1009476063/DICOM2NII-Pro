@@ -47,6 +47,20 @@ class StatusBar:
             width=10
         )
         self.progress_label.pack(side=tk.RIGHT)
+        
+        # 版权信息和GitHub链接
+        self.copyright_label = ttk.Label(
+            self.frame,
+            text="© 2025 MICS by TanX | GitHub",
+            relief=tk.SUNKEN,
+            anchor=tk.CENTER,
+            padding=5,
+            cursor="hand2"
+        )
+        self.copyright_label.pack(side=tk.RIGHT, padx=(5, 0))
+        
+        # 绑定GitHub链接点击事件
+        self.copyright_label.bind("<Button-1>", self._open_github)
     
     def set_status(self, message: str):
         """设置状态消息"""
@@ -65,4 +79,9 @@ class StatusBar:
     
     def set_progress(self, progress: float):
         """设置进度百分比"""
-        self.progress_var.set(f"{progress:.1f}%") 
+        self.progress_var.set(f"{progress:.1f}%")
+    
+    def _open_github(self, event):
+        """打开GitHub链接"""
+        import webbrowser
+        webbrowser.open("https://github.com/TanX-009/MICS") 

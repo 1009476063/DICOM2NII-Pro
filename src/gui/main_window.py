@@ -37,7 +37,7 @@ class MainWindow:
         
         # 创建主窗口
         self.root = tk.Tk()
-        self.root.title("DICOM2NII Pro - 专业医学影像转换软件")
+        self.root.title("MICS - Medical Imaging Image Conversion System v1.0.0")
         self.root.geometry("1200x800")
         self.root.minsize(1000, 600)
         
@@ -354,7 +354,7 @@ class MainWindow:
     
     def _show_help(self):
         """显示帮助"""
-        help_text = """DICOM2NII Pro 用户手册
+        help_text = """MICS - Medical Imaging Image Conversion System 用户手册
 
 基本操作：
 1. 点击"打开文件"或"打开文件夹"选择要转换的DICOM数据
@@ -372,6 +372,10 @@ class MainWindow:
 - MRI (磁共振成像)
 - MG (乳腺摄影)
 - RT (放疗数据)
+- US (超声成像)
+
+授权管理：
+使用 python main.py --license 命令进行许可证管理
 """
         
         # 创建帮助窗口
@@ -386,23 +390,59 @@ class MainWindow:
     
     def _show_about(self):
         """显示关于信息"""
-        about_text = """DICOM2NII Pro v1.0.0
+        about_text = """MICS - Medical Imaging Image Conversion System v1.0.0
 
 专业的医学影像格式转换软件
 
 特点：
-• 支持多种DICOM模态类型
-• 智能序列识别和分组
+• 支持多种DICOM模态类型转换
+• 智能序列识别和分组处理
 • 批量处理和转换管理
-• 现代化的用户界面
-• 详细的进度监控
+• 现代化的用户界面设计
+• 详细的进度监控显示
+• 离线授权验证系统
+
+作者：TanX
+开发日期：2025-06-01
 
 技术支持：
+GitHub: https://github.com/TanX-009/MICS
 请访问我们的GitHub仓库获取更多信息和技术支持。
 
-© 2024 DICOM2NII Pro Team
+© 2025 MICS Development Team
 """
-        messagebox.showinfo("关于 DICOM2NII Pro", about_text)
+        
+        # 创建带有可点击链接的关于对话框
+        about_window = tk.Toplevel(self.root)
+        about_window.title("关于 MICS")
+        about_window.geometry("500x400")
+        about_window.resizable(False, False)
+        
+        # 居中显示
+        about_window.transient(self.root)
+        about_window.grab_set()
+        
+        # 内容框架
+        content_frame = ttk.Frame(about_window, padding="20")
+        content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 文本显示
+        text_widget = tk.Text(content_frame, wrap=tk.WORD, height=18, width=50)
+        text_widget.pack(fill=tk.BOTH, expand=True)
+        text_widget.insert(tk.END, about_text)
+        text_widget.config(state=tk.DISABLED)
+        
+        # 按钮框架
+        button_frame = ttk.Frame(content_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # GitHub按钮
+        def open_github():
+            import webbrowser
+            webbrowser.open("https://github.com/TanX-009/MICS")
+        
+        ttk.Button(button_frame, text="访问GitHub", command=open_github).pack(side=tk.LEFT)
+        ttk.Button(button_frame, text="确定", command=about_window.destroy).pack(side=tk.RIGHT)
     
     def _start_progress_monitor(self):
         """启动进度监控"""

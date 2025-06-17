@@ -317,21 +317,23 @@ class ConversionManager:
                     )
             
             # 创建进度回调
-            def progress_callback(progress: int, message: str):
-                task.progress = progress / 100.0
+            def progress_callback(progress_info):
+                task.progress = progress_info.progress
                 for callback in self.progress_callbacks:
                     try:
-                        callback(task.task_id, task.progress, message)
+                        callback(task.task_id, task.progress, progress_info.current_step)
                     except Exception as e:
                         self.logger.warning(f"进度回调函数执行失败: {e}")
             
             # 获取转换器并执行转换
-            converter = get_converter(task.modality, progress_callback)
-            success = converter.convert_to_nifti(
-                str(task.input_path),
-                str(task.output_path),
-                task.conversion_params
+            converter = get_converter(
+                task.modality, 
+                input_path=task.input_path,
+                output_path=task.output_path,
+                progress_callback=progress_callback
             )
+            result = converter.convert()
+            success = result.success
             
             if success:
                 task.status = "completed"
@@ -499,4 +501,4 @@ class ConversionManager:
 
 
 # 全局转换管理器实例
-conversion_manager = ConversionManager(max_workers=settings.conversion.max_memory_gb // 2 or 1) 
+conversion_manager = ConversionManager(max_workers=int(settings.conversion.max_memory_gb // 2) or 1) 

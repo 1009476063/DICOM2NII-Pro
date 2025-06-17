@@ -31,12 +31,14 @@ CONVERTER_REGISTRY = {
     'RTDOSE': RadiotherapyConverter,
 }
 
-def get_converter(modality: str, progress_callback=None):
+def get_converter(modality: str, input_path=None, output_path=None, progress_callback=None):
     """
     根据模态获取相应的转换器
     
     Args:
         modality: 图像模态（CT/MRI/MG/RT等）
+        input_path: 输入路径
+        output_path: 输出路径
         progress_callback: 进度回调函数
         
     Returns:
@@ -49,7 +51,15 @@ def get_converter(modality: str, progress_callback=None):
     
     if modality_upper in CONVERTER_REGISTRY:
         converter_class = CONVERTER_REGISTRY[modality_upper]
-        return converter_class(progress_callback)
+        # 如果有输入输出路径，创建完整的转换器实例
+        if input_path and output_path:
+            converter = converter_class(input_path, output_path)
+            if progress_callback:
+                converter.set_progress_callback(progress_callback)
+            return converter
+        else:
+            # 如果没有路径，返回转换器类
+            return converter_class
     else:
         raise ValueError(f"不支持的模态类型: {modality}")
 
