@@ -36,7 +36,8 @@ try:
         QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
         QTabWidget, QLabel, QListWidget, QStackedWidget, QSplitter,
         QPushButton, QFileDialog, QTextEdit, QStatusBar, QListWidgetItem,
-        QGroupBox, QCheckBox, QLineEdit, QComboBox, QProgressBar, QMessageBox
+        QGroupBox, QCheckBox, QLineEdit, QComboBox, QProgressBar, QMessageBox,
+        QMenu
     )
     from PyQt6.QtGui import QAction, QIcon
     from PyQt6.QtCore import Qt
@@ -599,10 +600,12 @@ except ImportError as e:
 # 导入核心逻辑
 try:
     from src.core.conversion_config import (
-        CTConversionConfig, MRIConversionConfig, MammographyConversionConfig, UltrasoundConversionConfig
+        BaseConversionConfig, CTConversionConfig, MRIConversionConfig,
+        MammographyConversionConfig, UltrasoundConversionConfig
     )
     from src.core.processing_controller import ProcessingController
     from src.auth.license_manager import IGPSLicenseManager
+    from src.config.config_manager import ConfigManager
     CORE_LOGIC_AVAILABLE = True
 except ImportError as e:
     CORE_LOGIC_AVAILABLE = False
