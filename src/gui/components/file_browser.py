@@ -22,18 +22,28 @@ class FileBrowser:
     
     def _create_widgets(self):
         """创建子组件"""
+        # 配置frame的grid
+        self.frame.grid_rowconfigure(1, weight=1)
+        self.frame.grid_columnconfigure(0, weight=1)
+        
         # 工具栏
         toolbar = ttk.Frame(self.frame)
-        toolbar.pack(fill=tk.X, pady=(0, 10))
+        toolbar.grid(row=0, column=0, sticky='ew', pady=(0, 10))
         
         ttk.Button(toolbar, text="添加文件", command=self._add_files).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="添加文件夹", command=self._add_folder).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="移除选中", command=self._remove_selected).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="清空", command=self._clear_all).pack(side=tk.LEFT, padx=2)
         
+        # 创建树视图容器
+        tree_container = ttk.Frame(self.frame)
+        tree_container.grid(row=1, column=0, sticky='nsew')
+        tree_container.grid_rowconfigure(0, weight=1)
+        tree_container.grid_columnconfigure(0, weight=1)
+        
         # 文件列表
         self.file_tree = ttk.Treeview(
-            self.frame,
+            tree_container,
             columns=('type', 'size', 'path'),
             show='tree headings',
             selectmode='extended'
@@ -52,30 +62,15 @@ class FileBrowser:
         self.file_tree.column('path', width=300)
         
         # 添加滚动条
-        v_scrollbar = ttk.Scrollbar(self.frame, orient=tk.VERTICAL, command=self.file_tree.yview)
-        h_scrollbar = ttk.Scrollbar(self.frame, orient=tk.HORIZONTAL, command=self.file_tree.xview)
+        v_scrollbar = ttk.Scrollbar(tree_container, orient=tk.VERTICAL, command=self.file_tree.yview)
+        h_scrollbar = ttk.Scrollbar(tree_container, orient=tk.HORIZONTAL, command=self.file_tree.xview)
         
         self.file_tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
         
-        # 布局
+        # 布局树视图和滚动条
         self.file_tree.grid(row=0, column=0, sticky='nsew')
         v_scrollbar.grid(row=0, column=1, sticky='ns')
         h_scrollbar.grid(row=1, column=0, sticky='ew')
-        
-        # 配置网格权重
-        self.frame.grid_rowconfigure(0, weight=1)
-        self.frame.grid_columnconfigure(0, weight=1)
-        
-        # 创建网格容器
-        tree_container = ttk.Frame(self.frame)
-        tree_container.pack(fill=tk.BOTH, expand=True)
-        tree_container.grid_rowconfigure(0, weight=1)
-        tree_container.grid_columnconfigure(0, weight=1)
-        
-        # 重新放置组件
-        self.file_tree.grid(row=0, column=0, sticky='nsew', in_=tree_container)
-        v_scrollbar.grid(row=0, column=1, sticky='ns', in_=tree_container)
-        h_scrollbar.grid(row=1, column=0, sticky='ew', in_=tree_container)
     
     def _add_files(self):
         """添加文件（占位方法）"""
