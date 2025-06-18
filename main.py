@@ -26,9 +26,17 @@ from typing import Optional
 # 添加src目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+# Core logic imports (placed at top level)
+from src import __version__
+from src.core.processing_controller import ProcessingController
+from src.auth.license_manager import IGPSLicenseManager
+from src.core.conversion_config import (
+    BaseConversionConfig, CTConversionConfig, MRIConversionConfig,
+    MammographyConversionConfig, UltrasoundConversionConfig
+)
+
 # 定义全局变量，以便在try/except块之外访问
 GUI_AVAILABLE = False
-CORE_LOGIC_AVAILABLE = False
 
 # 导入GUI模块 (PyQt6)
 try:
@@ -45,13 +53,18 @@ try:
 
     # Import custom widgets
     from src.gui.settings_tab import SettingsTab
+except ImportError as e:
+    # Set GUI_AVAILABLE to False if any GUI import fails
+    GUI_AVAILABLE = False
+    print(f"GUI模块导入失败: {e}")
 
-    # ===================================================================
-    #  GUI Class Definitions
-    #  All classes that depend on PyQt6 must be defined inside this
-    #  'try' block to avoid NameError when PyQt6 is not installed.
-    # ===================================================================
 
+# ===================================================================
+#  GUI Class Definitions
+#  All classes that depend on PyQt6 must be defined inside this
+#  'if' block to avoid NameError when PyQt6 is not installed.
+# ===================================================================
+if GUI_AVAILABLE:
     class CTSettingsWidget(QWidget):
         """CT图像预处理设置面板"""
         def __init__(self, parent=None):
@@ -592,30 +605,16 @@ try:
             copyright_label = QLabel("© 2025 TanX. All Rights Reserved.")
             self.status_bar.addPermanentWidget(copyright_label)
 
-except ImportError as e:
-    GUI_AVAILABLE = False
-    # We can't define the classes above, so we can't do much.
-    # The message will be printed to the console upon startup.
-
-# 导入核心逻辑
-try:
-    from src.core.conversion_config import (
-        BaseConversionConfig, CTConversionConfig, MRIConversionConfig,
-        MammographyConversionConfig, UltrasoundConversionConfig
-    )
-    from src.core.processing_controller import ProcessingController
-    from src.auth.license_manager import IGPSLicenseManager
-    from src.config.config_manager import ConfigManager
-    CORE_LOGIC_AVAILABLE = True
-except ImportError as e:
-    CORE_LOGIC_AVAILABLE = False
-    print(f"⚠️ 核心逻辑模块导入失败: {e}")
-
-
-__version__ = "2.0.0"
-__author__ = "TanX"
-__copyright__ = "Copyright 2025, Image Group Processing System"
-__github__ = "https://github.com/TanX-009/IGPS" # Placeholder
+# ===================================================================
+#  Core Logic (Non-GUI)
+# ===================================================================
+# Dummy classes for when GUI is not available, to allow core logic to run
+if not GUI_AVAILABLE:
+    class QWidget: pass
+    class QObject: pass
+    class QMainWindow: pass
+    class PreprocessingTab(QWidget): pass
+    # Add any other required base classes
 
 def parse_arguments():
     """解析命令行参数"""
@@ -690,8 +689,8 @@ def run_gui_mode():
 def run_license_mode():
     """运行许可证管理模式 (交互式)"""
     print("🔑 许可证管理模式...")
-    if not CORE_LOGIC_AVAILABLE:
-        print("无法启动许可证模式，因为核心逻辑模块未能成功导入。")
+    if not GUI_AVAILABLE:
+        print("无法启动许可证模式，因为GUI模块未能成功导入。")
         return
 
     try:

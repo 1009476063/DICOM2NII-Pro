@@ -468,7 +468,7 @@ class DicomConverter:
         self.logger.info(f"Saving processed image to {output_filename}")
         sitk.WriteImage(image, str(output_filename))
 
-    def _apply_n4_correction(self, image: sitk.Image) -> sitk.Image:
+    def _apply_n4_correction(self, image: 'sitk.Image') -> 'sitk.Image':
         self.logger.info("Applying N4 Bias Field Correction...")
         # Create a mask image
         mask_image = sitk.OtsuThreshold(image, 0, 1, 200)
@@ -478,7 +478,7 @@ class DicomConverter:
         corrected_image = corrector.Execute(image, mask_image)
         return sitk.Cast(corrected_image, image.GetPixelID())
 
-    def _resample_image(self, image: sitk.Image, new_spacing: tuple, interpolator: str) -> sitk.Image:
+    def _resample_image(self, image: 'sitk.Image', new_spacing: tuple, interpolator: str) -> 'sitk.Image':
         self.logger.info(f"Resampling image to voxel size: {new_spacing}")
         resampler = sitk.ResampleImageFilter()
         
@@ -506,7 +506,7 @@ class DicomConverter:
         
         return resampler.Execute(image)
 
-    def _perform_skull_stripping(self, image: sitk.Image) -> sitk.Image:
+    def _perform_skull_stripping(self, image: 'sitk.Image') -> 'sitk.Image':
         self.logger.info("Performing skull stripping...")
         # This is a placeholder for a real skull-stripping algorithm.
         # A simple approach is using thresholding and morphological operations.
@@ -525,7 +525,7 @@ class DicomConverter:
         
         return sitk.Mask(image, brain_mask)
 
-    def _normalize_intensity(self, image: sitk.Image, method: str) -> sitk.Image:
+    def _normalize_intensity(self, image: 'sitk.Image', method: str) -> 'sitk.Image':
         self.logger.info(f"Normalizing intensity using: {method}")
         # Placeholder for real normalization. Z-Score is common.
         if method == "ZScore":
@@ -540,7 +540,7 @@ class DicomConverter:
         self.logger.warning(f"Normalization method '{method}' is not fully implemented.")
         return image
 
-    def _discretize_intensity(self, image: sitk.Image, dis_type: str, value: float) -> sitk.Image:
+    def _discretize_intensity(self, image: 'sitk.Image', dis_type: str, value: float) -> 'sitk.Image':
         self.logger.info(f"Discretizing intensity with {dis_type}: {value}")
         # Implementation for intensity discretization
         if dis_type == "FixedBinWidth":
