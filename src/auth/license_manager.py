@@ -16,10 +16,12 @@ import hashlib
 import platform
 import uuid
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime, timedelta
 from dataclasses import dataclass, asdict
 import logging
+import secrets
+import base64
 
 try:
     from cryptography.fernet import Fernet
@@ -142,281 +144,295 @@ class HardwareFingerprint:
         return stored_id == current_id
 
 
-class LicenseManager:
-    """授权管理器"""
+class IGPSLicenseManager:
+    """IGPS授权管理器"""
+
+    # 这是本软件唯一的应用密钥，确保授权码的专有性。
+    # 警告：请勿泄露或修改此密钥，否则所有已生成的授权码将失效。
+    APP_SECRET = "IGPS_TANX_RADIOMICS_PLATFORM_SECRET_KEY_2025"
     
-    def __init__(self, app_name: str = "MICS"):
-        """
-        初始化授权管理器
+    def __init__(self, config_dir: str = None):
+        """初始化授权管理器"""
+        self.config_dir = config_dir or os.path.join(os.getcwd(), "config")
+        self.license_file = os.path.join(self.config_dir, "license.json")
+        self.trial_file = os.path.join(self.config_dir, "trial.json")
         
-        Args:
-            app_name: 应用程序名称
-        """
-        self.app_name = app_name
-        self.logger = logging.getLogger(__name__)
+        # 确保配置目录存在
+        os.makedirs(self.config_dir, exist_ok=True)
         
-        # 授权文件路径
-        if platform.system() == "Windows":
-            self.license_dir = Path.home() / "AppData" / "Local" / app_name
-        else:
-            self.license_dir = Path.home() / f".{app_name.lower()}"
+        # 不再在内存中保存所有许可，而是按需验证
+        # self.builtin_licenses = self._generate_builtin_licenses()
         
-        self.license_file = self.license_dir / "license.dat"
-        self.config_file = self.license_dir / "config.json"
+        # 初始化状态
+        self._load_license_data()
+        self._load_trial_data()
         
-        # 确保目录存在
-        self.license_dir.mkdir(parents=True, exist_ok=True)
+    def _generate_builtin_licenses(self, count=1000) -> List[str]:
+        """生成指定数量的内置授权码，仅用于生成脚本。"""
+        licenses = []
+        base_seed = "IGPS-PRO-2025-USER"
         
-        # 加密密钥
-        self.encryption_key = None
-        if CRYPTO_AVAILABLE:
-            self._init_encryption()
+        for i in range(count):
+            # 创建基于应用密钥、索引和基础种子的授权码
+            data = f"{self.APP_SECRET}-{base_seed}-{i:04d}"
+            hash_obj = hashlib.sha256(data.encode())
+            license_hash = hash_obj.hexdigest()[:16].upper()
+            
+            # 格式化为 XXXX-XXXX-XXXX-XXXX 格式
+            formatted_license = f"{license_hash[:4]}-{license_hash[4:8]}-{license_hash[8:12]}-{license_hash[12:16]}"
+            licenses.append(formatted_license)
+            
+        return licenses
         
-        # 当前授权信息
-        self.current_license: Optional[LicenseInfo] = None
-        self.load_license()
-    
-    def _init_encryption(self):
-        """初始化加密"""
-        if not CRYPTO_AVAILABLE:
-            return
-        
-        # 基于硬件指纹生成加密密钥
-        hardware_id = HardwareFingerprint.get_machine_id()
-        password = f"{self.app_name}_{hardware_id}".encode()
-        salt = b'MICS_SALT_2025'
-        
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=salt,
-            iterations=100000,
-        )
-        key = base64.urlsafe_b64encode(kdf.derive(password))
-        self.encryption_key = Fernet(key)
-    
-    def _encrypt_data(self, data: str) -> str:
-        """加密数据"""
-        if not CRYPTO_AVAILABLE or not self.encryption_key:
-            # 如果没有加密库，使用简单的编码
-            return base64.b64encode(data.encode()).decode()
-        
-        return self.encryption_key.encrypt(data.encode()).decode()
-    
-    def _decrypt_data(self, encrypted_data: str) -> str:
-        """解密数据"""
-        if not CRYPTO_AVAILABLE or not self.encryption_key:
-            # 如果没有加密库，使用简单的解码
+    def _load_license_data(self):
+        """加载授权数据"""
+        self.license_data = {}
+        if os.path.exists(self.license_file):
             try:
-                return base64.b64decode(encrypted_data.encode()).decode()
-            except Exception:
-                raise ValueError("授权文件损坏")
-        
+                with open(self.license_file, 'r', encoding='utf-8') as f:
+                    self.license_data = json.load(f)
+            except Exception as e:
+                print(f"加载授权数据失败: {e}")
+                
+    def _save_license_data(self):
+        """保存授权数据"""
         try:
-            return self.encryption_key.decrypt(encrypted_data.encode()).decode()
-        except Exception:
-            raise ValueError("授权文件损坏或被篡改")
-    
-    def generate_trial_license(self, days: int = 30) -> LicenseInfo:
-        """
-        生成试用授权
-        
-        Args:
-            days: 试用天数
-            
-        Returns:
-            试用授权信息
-        """
-        hardware_id = HardwareFingerprint.get_machine_id()
-        expire_date = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
-        
-        license_info = LicenseInfo(
-            license_key=f"TRIAL-{hardware_id[:8]}-{datetime.now().strftime('%Y%m%d')}",
-            hardware_id=hardware_id,
-            expire_date=expire_date,
-            user_name="Trial User",
-            organization="Trial Organization",
-            license_type="trial",
-            max_conversions=100,  # 试用版限制100次转换
-            features={
-                "basic_conversion": True,
-                "batch_processing": True,
-                "advanced_settings": False,
-                "plugin_support": False,
-                "commercial_use": False
-            }
-        )
-        
-        return license_info
-    
-    def install_license(self, license_data: str) -> Tuple[bool, str]:
-        """
-        安装授权
-        
-        Args:
-            license_data: 授权数据字符串
-            
-        Returns:
-            (是否成功, 消息)
-        """
-        try:
-            # 解析授权数据
-            license_info = self._parse_license_data(license_data)
-            
-            # 验证硬件指纹
-            if not HardwareFingerprint.validate_hardware_id(license_info.hardware_id):
-                return False, "授权与当前硬件不匹配"
-            
-            # 验证授权是否过期
-            if license_info.is_expired:
-                return False, f"授权已过期（过期日期：{license_info.expire_date}）"
-            
-            # 保存授权
-            self.save_license(license_info)
-            self.current_license = license_info
-            
-            return True, f"授权安装成功，有效期至：{license_info.expire_date}"
-            
-        except Exception as e:
-            return False, f"授权安装失败：{str(e)}"
-    
-    def _parse_license_data(self, license_data: str) -> LicenseInfo:
-        """解析授权数据"""
-        try:
-            # 这里应该包含更复杂的验证逻辑
-            # 简化版本：假设license_data是JSON格式
-            if license_data.startswith('{'):
-                data = json.loads(license_data)
-            else:
-                # 假设是base64编码的JSON
-                decoded = base64.b64decode(license_data).decode()
-                data = json.loads(decoded)
-            
-            # 过滤掉LicenseInfo类不需要的字段
-            valid_fields = {
-                'license_key', 'hardware_id', 'expire_date', 'user_name',
-                'organization', 'license_type', 'max_conversions', 'features'
-            }
-            filtered_data = {k: v for k, v in data.items() if k in valid_fields}
-            
-            return LicenseInfo(**filtered_data)
-            
-        except Exception as e:
-            raise ValueError(f"无效的授权数据格式：{e}")
-    
-    def save_license(self, license_info: LicenseInfo):
-        """保存授权信息"""
-        try:
-            # 序列化授权信息
-            license_dict = asdict(license_info)
-            license_json = json.dumps(license_dict, ensure_ascii=False, indent=2)
-            
-            # 加密并保存
-            encrypted_data = self._encrypt_data(license_json)
-            
             with open(self.license_file, 'w', encoding='utf-8') as f:
-                f.write(encrypted_data)
-            
-            self.logger.info("授权信息保存成功")
-            
+                json.dump(self.license_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            self.logger.error(f"保存授权信息失败：{e}")
-            raise
-    
-    def load_license(self) -> Optional[LicenseInfo]:
-        """加载授权信息"""
+            print(f"保存授权数据失败: {e}")
+            
+    def _load_trial_data(self):
+        """加载试用数据"""
+        self.trial_data = {"used_count": 0, "first_use": None}
+        if os.path.exists(self.trial_file):
+            try:
+                with open(self.trial_file, 'r', encoding='utf-8') as f:
+                    self.trial_data = json.load(f)
+            except Exception as e:
+                print(f"加载试用数据失败: {e}")
+                
+    def _save_trial_data(self):
+        """保存试用数据"""
         try:
-            if not self.license_file.exists():
-                return None
+            with open(self.trial_file, 'w', encoding='utf-8') as f:
+                json.dump(self.trial_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存试用数据失败: {e}")
             
-            with open(self.license_file, 'r', encoding='utf-8') as f:
-                encrypted_data = f.read().strip()
+    def get_hardware_fingerprint(self) -> str:
+        """获取硬件指纹"""
+        try:
+            # 收集系统信息
+            system_info = {
+                'platform': platform.system(),
+                'processor': platform.processor(),
+                'machine': platform.machine(),
+                'node': platform.node()
+            }
             
-            # 解密数据
-            license_json = self._decrypt_data(encrypted_data)
-            license_dict = json.loads(license_json)
-            
-            license_info = LicenseInfo(**license_dict)
-            
-            # 验证硬件指纹
-            if not HardwareFingerprint.validate_hardware_id(license_info.hardware_id):
-                self.logger.warning("硬件指纹不匹配，授权可能被非法复制")
-                return None
-            
-            self.current_license = license_info
-            return license_info
+            # 尝试获取更多硬件信息
+            try:
+                mac_address = ':'.join(['{:02x}'.format((uuid.getnode() >> i) & 0xff) 
+                                      for i in range(0, 8*6, 8)][::-1])
+                system_info['mac'] = mac_address
+            except:
+                pass
+                
+            # 创建指纹
+            info_str = json.dumps(system_info, sort_keys=True)
+            fingerprint = hashlib.sha256(info_str.encode()).hexdigest()[:16]
+            return fingerprint
             
         except Exception as e:
-            self.logger.warning(f"加载授权信息失败：{e}")
-            return None
-    
-    def validate_license(self) -> Tuple[bool, str]:
-        """
-        验证当前授权
-        
-        Returns:
-            (是否有效, 状态消息)
-        """
-        if not self.current_license:
-            return False, "未找到有效授权"
-        
-        # 检查过期时间
-        if self.current_license.is_expired:
-            return False, f"授权已过期（过期日期：{self.current_license.expire_date}）"
-        
-        # 检查硬件指纹
-        if not HardwareFingerprint.validate_hardware_id(self.current_license.hardware_id):
-            return False, "硬件指纹不匹配"
-        
-        return True, f"授权有效，剩余 {self.current_license.days_remaining} 天"
-    
-    def check_feature(self, feature_name: str) -> bool:
-        """
-        检查功能授权
-        
-        Args:
-            feature_name: 功能名称
+            print(f"获取硬件指纹失败: {e}")
+            return "default_fingerprint"
             
-        Returns:
-            是否有权限使用该功能
+    def verify_builtin_license(self, license_code: str) -> bool:
         """
-        if not self.current_license:
+        验证一个授权码是否是理论上有效的内置授权码。
+        这只检查码的格式和来源，不检查其是否已被激活。
+        """
+        if not self.validate_license_format(license_code):
             return False
+
+        base_seed = "IGPS-PRO-2025-USER"
+        # 此处我们假设内置授权码的数量上限为1000，与生成器保持一致
+        for i in range(1000):
+            # 使用与生成时完全相同的算法来验证
+            data = f"{self.APP_SECRET}-{base_seed}-{i:04d}"
+            hash_obj = hashlib.sha256(data.encode())
+            license_hash = hash_obj.hexdigest()[:16].upper()
+            
+            expected_license = f"{license_hash[:4]}-{license_hash[4:8]}-{license_hash[8:12]}-{license_hash[12:16]}"
+            
+            if secrets.compare_digest(expected_license, license_code):
+                # 只要找到一个匹配的，就证明这个码是合法的
+                return True
         
-        return self.current_license.features.get(feature_name, False)
-    
+        # 遍历完所有可能性都未找到，则为非法码
+        return False
+
+    def activate_license(self, license_code: str, user_name: str, organization: str) -> Tuple[bool, str]:
+        """
+        激活一个全新的授权码。
+        """
+        # 1. 验证是否为本软件的合法授权码
+        if not self.verify_builtin_license(license_code):
+            return False, "授权码无效或不属于本软件。"
+
+        # 2. 检查授权码是否已经被激活
+        if license_code in self.license_data:
+            return False, "此授权码已被激活，请勿重复使用。"
+
+        # 3. 如果未激活，则创建新的授权记录
+        hardware_id = self.get_hardware_fingerprint()
+        activation_date = datetime.now()
+        # 默认有效期为36500天 (约100年), 相当于永久
+        expire_date = activation_date + timedelta(days=36500)
+
+        new_license_info = LicenseInfo(
+            license_key=license_code,
+            hardware_id=hardware_id,
+            expire_date=expire_date.strftime("%Y-%m-%d"),
+            user_name=user_name,
+            organization=organization,
+            license_type='standard', # 默认为标准版
+        )
+
+        self.license_data[license_code] = asdict(new_license_info)
+        self._save_license_data()
+
+        return True, "软件激活成功！"
+        
+    def is_licensed(self) -> bool:
+        """检查当前环境是否有一个有效的、已激活的许可证"""
+        hardware_id = self.get_hardware_fingerprint()
+
+        for code, info_dict in self.license_data.items():
+            info = LicenseInfo(**info_dict)
+            if info.hardware_id == hardware_id and not info.is_expired:
+                # 找到一个与当前硬件匹配且未过期的授权
+                return True
+        
+        return False
+        
     def get_license_info(self) -> Optional[LicenseInfo]:
-        """获取当前授权信息"""
-        return self.current_license
-    
-    def remove_license(self):
-        """移除授权"""
+        """获取当前环境下已激活的有效授权信息"""
+        if not self.is_licensed():
+            return None
+        
+        hardware_id = self.get_hardware_fingerprint()
+        for code, info_dict in self.license_data.items():
+            info = LicenseInfo(**info_dict)
+            if info.hardware_id == hardware_id and not info.is_expired:
+                return info
+        return None
+
+    def can_use_trial(self) -> bool:
+        """检查是否可以使用试用"""
+        return self.trial_data["used_count"] < 3
+        
+    def use_trial(self) -> bool:
+        """使用一次试用"""
+        if not self.can_use_trial():
+            return False
+            
+        current_time = datetime.now()
+        
+        if self.trial_data["first_use"] is None:
+            self.trial_data["first_use"] = current_time.isoformat()
+            
+        self.trial_data["used_count"] += 1
+        self._save_trial_data()
+        return True
+        
+    def get_remaining_trials(self) -> int:
+        """获取剩余试用次数"""
+        return max(0, 3 - self.trial_data["used_count"])
+        
+    def reset_trial(self) -> bool:
+        """重置试用次数（仅用于开发测试）"""
+        self.trial_data = {"used_count": 0, "first_use": None}
+        self._save_trial_data()
+        return True
+        
+    def revoke_license(self, license_code: str) -> bool:
+        """撤销授权"""
+        if license_code in self.license_data:
+            self.license_data[license_code]['status'] = 'revoked'
+            self._save_license_data()
+            return True
+        return False
+        
+    def list_active_licenses(self) -> List[Dict]:
+        """列出所有活跃的授权"""
+        active_licenses = []
+        current_time = datetime.now()
+        
+        for license_code, license_info in self.license_data.items():
+            if license_info.get('status') == 'active':
+                try:
+                    expiry_date = datetime.fromisoformat(license_info['expiry_date'])
+                    is_expired = current_time > expiry_date
+                    days_remaining = (expiry_date - current_time).days if not is_expired else 0
+                    
+                    active_licenses.append({
+                        'license_code': license_code,
+                        'activation_date': license_info['activation_date'],
+                        'expiry_date': license_info['expiry_date'],
+                        'hardware_fingerprint': license_info.get('hardware_fingerprint', 'Unknown'),
+                        'is_expired': is_expired,
+                        'days_remaining': days_remaining
+                    })
+                except:
+                    continue
+                    
+        return active_licenses
+        
+    def export_builtin_licenses(self, output_file: str) -> bool:
+        """导出内置授权码到文件"""
         try:
-            if self.license_file.exists():
-                self.license_file.unlink()
-            self.current_license = None
-            self.logger.info("授权已移除")
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write("# MICS 授权码列表\n")
+                f.write("# 每个授权码有效期：3个月\n")
+                f.write("# 每个授权码只能在一台设备上使用\n")
+                f.write("# 生成时间：" + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n")
+                f.write("# 总数量：1000个\n\n")
+                
+                for i, license_code in enumerate(self._generate_builtin_licenses(), 1):
+                    f.write(f"{i:04d}: {license_code}\n")
+                    
+            return True
         except Exception as e:
-            self.logger.error(f"移除授权失败：{e}")
-    
-    def get_hardware_id(self) -> str:
-        """获取当前硬件ID"""
-        return HardwareFingerprint.get_machine_id()
-    
-    def export_hardware_info(self) -> Dict[str, Any]:
-        """导出硬件信息用于生成授权"""
-        return {
-            "hardware_id": self.get_hardware_id(),
-            "platform": platform.platform(),
-            "machine": platform.machine(),
-            "processor": platform.processor(),
-            "node": platform.node(),
-            "timestamp": datetime.now().isoformat()
-        }
+            print(f"导出授权码失败: {e}")
+            return False
+            
+    def validate_license_format(self, license_code: str) -> bool:
+        """验证授权码格式"""
+        if not license_code:
+            return False
+            
+        # 移除空格和转换为大写
+        license_code = license_code.replace(" ", "").upper()
+        
+        # 检查格式 XXXX-XXXX-XXXX-XXXX
+        if len(license_code) != 19:  # 16个字符 + 3个破折号
+            return False
+            
+        parts = license_code.split('-')
+        if len(parts) != 4:
+            return False
+            
+        for part in parts:
+            if len(part) != 4 or not all(c in '0123456789ABCDEF' for c in part):
+                return False
+                
+        return True
 
 
 # 全局授权管理器实例
-license_manager = LicenseManager("MICS")
+license_manager = IGPSLicenseManager()
 
 
 def require_license(feature: str = None):
