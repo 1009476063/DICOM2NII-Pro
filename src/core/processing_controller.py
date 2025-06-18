@@ -3,6 +3,7 @@ from PyQt6.QtCore import QObject, QRunnable, pyqtSignal, QThreadPool
 from .conversion_config import *
 from ..converters.dicom_converter import DicomConverter
 from ..auth.license_manager import IGPSLicenseManager
+from typing import Optional
 
 # Placeholder for actual converter implementations
 # from ..converters.ct_converter import CTConverter
@@ -60,10 +61,10 @@ class ProcessingController(QObject):
     Controls the preprocessing pipeline.
     It takes requests from the UI and runs them in a background thread pool.
     """
-    def __init__(self):
+    def __init__(self, license_manager: Optional[IGPSLicenseManager] = None):
         super().__init__()
         self.thread_pool = QThreadPool()
-        self.license_manager = IGPSLicenseManager()
+        self.license_manager = license_manager or IGPSLicenseManager()
         # You can set the max thread count if needed
         # self.thread_pool.setMaxThreadCount(1) 
         self.worker = None

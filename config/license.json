@@ -4,5 +4,15 @@
     "expiry_date": "2025-09-16T02:01:49.630876",
     "hardware_fingerprint": "97b42a7083347be5",
     "status": "active"
+  },
+  "1920-07BF-50F5-E057": {
+    "license_key": "1920-07BF-50F5-E057",
+    "hardware_id": "97b42a7083347be5",
+    "expire_date": "2125-05-26",
+    "user_name": "",
+    "organization": "",
+    "license_type": "standard",
+    "max_conversions": -1,
+    "features": {}
   }
 }

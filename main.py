@@ -45,10 +45,10 @@ try:
         QTabWidget, QLabel, QListWidget, QStackedWidget, QSplitter,
         QPushButton, QFileDialog, QTextEdit, QStatusBar, QListWidgetItem,
         QGroupBox, QCheckBox, QLineEdit, QComboBox, QProgressBar, QMessageBox,
-        QMenu
+        QMenu, QStyle
     )
-    from PyQt6.QtGui import QAction, QIcon
-    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QAction, QIcon, QDesktopServices
+    from PyQt6.QtCore import Qt, QUrl, pyqtSignal
     GUI_AVAILABLE = True
 
     # Import custom widgets
@@ -65,6 +65,19 @@ except ImportError as e:
 #  'if' block to avoid NameError when PyQt6 is not installed.
 # ===================================================================
 if GUI_AVAILABLE:
+    class ClickableLabel(QLabel):
+        """A QLabel that emits a 'clicked' signal when clicked."""
+        def __init__(self, url: str, text: str = "", parent=None):
+            super().__init__(text, parent)
+            self.url = QUrl(url)
+            self.setOpenExternalLinks(False)
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        def mouseReleaseEvent(self, event):
+            if event.button() == Qt.MouseButton.LeftButton:
+                QDesktopServices.openUrl(self.url)
+            super().mouseReleaseEvent(event)
+
     class CTSettingsWidget(QWidget):
         """CT图像预处理设置面板"""
         def __init__(self, parent=None):
@@ -294,9 +307,11 @@ if GUI_AVAILABLE:
 
     class PreprocessingTab(QWidget):
         """图像预处理功能总面板"""
-        def __init__(self, parent=None):
+        trial_used = pyqtSignal() # Signal to indicate a trial has been consumed
+
+        def __init__(self, license_manager: IGPSLicenseManager, parent=None):
             super().__init__(parent)
-            self.controller = ProcessingController()
+            self.controller = ProcessingController(license_manager=license_manager)
             main_layout = QVBoxLayout(self)
 
             # 1. 输入输出设置
@@ -501,6 +516,7 @@ if GUI_AVAILABLE:
                     
                     if ret == QMessageBox.StandardButton.Yes:
                         license_manager.use_trial() # Consume one trial
+                        self.trial_used.emit() # Notify UI to update
                     else:
                         self.log_display.append("用户取消了操作。")
                         return
@@ -536,11 +552,20 @@ if GUI_AVAILABLE:
             super().__init__()
             self.setWindowTitle(f"Image Group Processing System - v{__version__}")
             self.setGeometry(100, 100, 1200, 800)
+            self.license_manager = IGPSLicenseManager()
 
             self._create_menu()
             self._create_central_widget()
             self._create_status_bar()
             self.show()
+            
+            # Connect signals to slots for UI updates
+            self.settings_tab.license_activated.connect(self.update_status_bar)
+            self.settings_tab.license_activated.connect(self.settings_tab.update_status_display)
+            self.preprocessing_tab.trial_used.connect(self.update_status_bar)
+            self.preprocessing_tab.trial_used.connect(self.settings_tab.update_status_display)
+
+            self.update_status_bar()
 
         def _create_menu(self):
             menu_bar = self.menuBar()
@@ -563,7 +588,7 @@ if GUI_AVAILABLE:
             self.tabs = QTabWidget()
 
             # 1. 图像预处理
-            self.preprocessing_tab = PreprocessingTab(self)
+            self.preprocessing_tab = PreprocessingTab(self.license_manager, self)
             self.tabs.addTab(self.preprocessing_tab, "图像预处理")
 
             # 2. 特征提取
@@ -579,7 +604,7 @@ if GUI_AVAILABLE:
             self.tabs.addTab(self.model_building_tab, "模型构建")
 
             # 5. 设置
-            self.settings_tab = SettingsTab(self)
+            self.settings_tab = SettingsTab(self.license_manager, self)
             self.tabs.addTab(self.settings_tab, "设置")
 
             self.setCentralWidget(self.tabs)
@@ -596,14 +621,72 @@ if GUI_AVAILABLE:
                     break
 
         def _create_status_bar(self):
-            """创建状态栏"""
+            """创建并布局状态栏"""
             self.status_bar = QStatusBar()
             self.setStatusBar(self.status_bar)
-            self.status_bar.showMessage("准备就绪", 5000)
+            
+            # --- Main container widget for the status bar ---
+            status_widget = QWidget()
+            status_layout = QHBoxLayout(status_widget)
+            status_layout.setContentsMargins(10, 0, 10, 0) # left, top, right, bottom
 
-            # 添加版权信息
+            # --- 1. License Status (Left) ---
+            self.license_status_label = QLabel("授权状态未知")
+            status_layout.addWidget(self.license_status_label)
+            
+            status_layout.addStretch(1)
+
+            # --- 2. Copyright (Center) ---
             copyright_label = QLabel("© 2025 TanX. All Rights Reserved.")
-            self.status_bar.addPermanentWidget(copyright_label)
+            copyright_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            status_layout.addWidget(copyright_label)
+
+            status_layout.addStretch(1)
+
+            # --- 3. External Links (Right) ---
+            links_layout = QHBoxLayout()
+            
+            # Create icon objects using paths relative to the main script
+            app_dir = Path(__file__).parent
+            github_icon = QIcon(str(app_dir / "resources" / "github-mark.png"))
+            home_icon = QIcon(str(app_dir / "resources" / "home.png"))
+            blog_icon = QIcon(str(app_dir / "resources" / "blogger.png"))
+
+            # GitHub Icon
+            github_label = ClickableLabel("https://github.com/1009476063/IGPS", "")
+            github_label.setPixmap(github_icon.pixmap(16, 16))
+            github_label.setToolTip("查看项目GitHub仓库")
+            links_layout.addWidget(github_label)
+
+            # Home Icon
+            home_label = ClickableLabel("https://alist.1661688.xyz", "")
+            home_label.setPixmap(home_icon.pixmap(16, 16))
+            home_label.setToolTip("访问作者主页")
+            links_layout.addWidget(home_label)
+
+            # Blog Icon
+            blog_label = ClickableLabel("https://blog.1661688.xyz", "")
+            blog_label.setPixmap(blog_icon.pixmap(16, 16))
+            blog_label.setToolTip("访问作者博客")
+            links_layout.addWidget(blog_label)
+
+            status_layout.addLayout(links_layout)
+            
+            self.status_bar.addWidget(status_widget, 1)
+
+        def update_status_bar(self):
+            """根据授权状态更新状态栏显示"""
+            info = self.license_manager.get_license_info()
+            if info:
+                status_text = f"<font color='green'><b>授权成功</b> (剩余 {info.days_remaining} 天)</font>"
+            else:
+                remaining_trials = self.license_manager.get_remaining_trials()
+                if remaining_trials > 0:
+                    status_text = f"<font color='orange'><b>试用模式</b> (剩余 {remaining_trials} 次)</font>"
+                else:
+                    status_text = f"<font color='red'><b>授权已失效</b></font>"
+            self.license_status_label.setText(status_text)
+
 
 # ===================================================================
 #  Core Logic (Non-GUI)
