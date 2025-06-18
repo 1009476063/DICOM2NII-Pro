@@ -27,7 +27,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 # Core logic imports (placed at top level)
-from src import __version__
+from src import __version__, __author__
 from src.core.processing_controller import ProcessingController
 from src.auth.license_manager import IGPSLicenseManager
 from src.core.conversion_config import (
