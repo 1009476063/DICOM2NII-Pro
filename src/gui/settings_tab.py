@@ -9,9 +9,9 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QMessageBox, QTextBrowser
+    QPushButton, QMessageBox, QTextBrowser, QDialog
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtCore import QUrl
 import os
@@ -20,12 +20,15 @@ from pathlib import Path
 # 假设 license_manager 在 src/auth 目录下
 from ..auth.license_manager import IGPSLicenseManager
 from .. import __version__ as app_version
+from typing import Optional
 
 class SettingsTab(QWidget):
     """设置页面"""
-    def __init__(self, parent=None):
+    license_activated = pyqtSignal()
+
+    def __init__(self, license_manager: IGPSLicenseManager, parent=None):
         super().__init__(parent)
-        self.license_manager = IGPSLicenseManager()
+        self.license_manager = license_manager
         
         main_layout = QVBoxLayout(self)
         main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -135,6 +138,7 @@ class SettingsTab(QWidget):
         if success:
             QMessageBox.information(self, "激活成功", message)
             self.license_input.clear()
+            self.license_activated.emit()
         else:
             QMessageBox.critical(self, "激活失败", message)
             
@@ -165,7 +169,7 @@ class SettingsTab(QWidget):
 
     def show_help_dialog(self):
         """显示帮助文档对话框"""
-        help_file_path = Path(__file__).parent.parent.parent / "授权码使用说明.md"
+        help_file_path = Path(__file__).parent.parent.parent / "HELP.md"
         
         help_dialog = QDialog(self)
         help_dialog.setWindowTitle("帮助文档")
@@ -191,29 +195,6 @@ class SettingsTab(QWidget):
         <p>版本: {app_version}</p>
         <p>版权所有 © 2025 TanX。保留所有权利。</p>
         <p>本软件旨在提供一个高效、可靠的影像组学研究平台，集成了DICOM转换、图像预处理、特征提取与分析等功能。</p>
-        <p>技术支持与联系: <a href='mailto:your-email@example.com'>your-email@example.com</a></p>
+        <p>技术支持与联系: <a href='mailto:1009476063@qq.com'>1009476063@qq.com</a></p>
         """
-        QMessageBox.about(self, "关于 IGPS", about_text)
-
-class QDialog(QMessageBox):
-    """
-    Custom QDialog that can be resized.
-    QMessageBox is not resizable by default on macOS, so we use a little trick.
-    """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # This is a bit of a hack to make it resizable.
-        # It finds the layout and adds a stretchable space.
-        self.setSizeGripEnabled(True)
-
-    def event(self, e):
-        result = super().event(e)
-        self.setMinimumHeight(0)
-        self.setMaximumHeight(16777215)
-        self.setMinimumWidth(0)
-        self.setMaximumWidth(16777215)
-        self.setSizePolicy(
-            self.sizePolicy().horizontalPolicy(),
-            self.sizePolicy().verticalPolicy()
-        )
-        return result 
+        QMessageBox.about(self, "关于 IGPS", about_text) 

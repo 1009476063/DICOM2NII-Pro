@@ -18,6 +18,11 @@ from typing import List, Dict, Any, Optional, Callable
 import threading
 import time
 
+from ..core.conversion_config import (
+    BaseConversionConfig, CTConversionConfig, MRIConversionConfig,
+    MammographyConversionConfig, UltrasoundConversionConfig
+)
+
 try:
     import pydicom
     import nibabel as nib
@@ -423,9 +428,10 @@ class DicomConverter:
         self._update_progress(100, 100, "All patients processed.")
         self.logger.info("Finished processing directory.")
 
-    def _process_patient_series(self, patient_dir: Path, patient_id: str, config):
-        """Processes a single patient's DICOM series."""
+    def _process_patient_series(self, patient_dir: Path, patient_id: str, config: BaseConversionConfig):
+        """Processes a single patient's DICOM series based on the specific config type."""
         # 1. Read DICOM series
+        self.logger.info(f"Reading DICOM series from: {patient_dir}")
         reader = sitk.ImageSeriesReader()
         dicom_names = reader.GetGDCMSeriesFileNames(str(patient_dir))
         if not dicom_names:
@@ -434,35 +440,35 @@ class DicomConverter:
         reader.SetFileNames(dicom_names)
         image = reader.Execute()
 
-        # 2. Apply transformations based on config
-        # The order of operations can be important
+        # 2. Apply transformations based on config type
+        if isinstance(config, CTConversionConfig):
+            # Apply CT-specific preprocessing
+            if config.resample:
+                image = self._resample_image(image, config.new_voxel_size, config.interpolator)
+            if config.discretize:
+                image = self._discretize_intensity(image, config.discretization_type, config.discretization_value)
+
+        elif isinstance(config, MRIConversionConfig):
+            # Apply MRI-specific preprocessing
+            if config.n4_bias_correction:
+                image = self._apply_n4_correction(image)
+            if config.skull_stripping:
+                image = self._perform_skull_stripping(image)
+            if config.normalization_method != "None":
+                image = self._normalize_intensity(image, config.normalization_method)
+            if config.discretize:
+                image = self._discretize_intensity(image, config.discretization_type, config.discretization_value)
         
-        # N4 Bias Field Correction (MRI only)
-        if config.modality == "MRI" and config.n4_bias_correction:
-            image = self._apply_n4_correction(image)
-
-        # Resampling
-        if hasattr(config, 'resample') and config.resample:
-            image = self._resample_image(image, config)
-            
-        # Skull Stripping (MRI only)
-        if config.modality == "MRI" and config.skull_stripping:
-            image = self._perform_skull_stripping(image)
-            
-        # Normalization (MRI only)
-        if config.modality == "MRI" and config.normalization_method != "None":
-            image = self._normalize_intensity(image, config)
-
-        # Intensity Discretization
-        if hasattr(config, 'discretize') and config.discretize:
-            image = self._discretize_intensity(image, config)
+        # Other modalities like Mammography can be added here
+        # elif isinstance(config, MammographyConversionConfig):
+        #     ...
 
         # 3. Save the result
         output_filename = Path(config.output_dir) / f"{patient_id}_{config.modality}.nii.gz"
         self.logger.info(f"Saving processed image to {output_filename}")
         sitk.WriteImage(image, str(output_filename))
 
-    def _apply_n4_correction(self, image: sitk.Image) -> sitk.Image:
+    def _apply_n4_correction(self, image: 'sitk.Image') -> 'sitk.Image':
         self.logger.info("Applying N4 Bias Field Correction...")
         # Create a mask image
         mask_image = sitk.OtsuThreshold(image, 0, 1, 200)
@@ -472,8 +478,8 @@ class DicomConverter:
         corrected_image = corrector.Execute(image, mask_image)
         return sitk.Cast(corrected_image, image.GetPixelID())
 
-    def _resample_image(self, image: sitk.Image, config) -> sitk.Image:
-        self.logger.info(f"Resampling image to voxel size: {config.new_voxel_size}")
+    def _resample_image(self, image: 'sitk.Image', new_spacing: tuple, interpolator: str) -> 'sitk.Image':
+        self.logger.info(f"Resampling image to voxel size: {new_spacing}")
         resampler = sitk.ResampleImageFilter()
         
         # Set interpolator
@@ -482,12 +488,11 @@ class DicomConverter:
             "sitkNearestNeighbor": sitk.sitkNearestNeighbor,
             "sitkBSpline": sitk.sitkBSpline
         }
-        resampler.SetInterpolator(interpolator_map.get(config.interpolator, sitk.sitkLinear))
+        resampler.SetInterpolator(interpolator_map.get(interpolator, sitk.sitkLinear))
         
         # Calculate new size and set output parameters
         original_spacing = image.GetSpacing()
         original_size = image.GetSize()
-        new_spacing = config.new_voxel_size
         
         new_size = [
             int(round(orig_size * orig_space / new_space))
@@ -501,7 +506,7 @@ class DicomConverter:
         
         return resampler.Execute(image)
 
-    def _perform_skull_stripping(self, image: sitk.Image) -> sitk.Image:
+    def _perform_skull_stripping(self, image: 'sitk.Image') -> 'sitk.Image':
         self.logger.info("Performing skull stripping...")
         # This is a placeholder for a real skull-stripping algorithm.
         # A simple approach is using thresholding and morphological operations.
@@ -520,30 +525,32 @@ class DicomConverter:
         
         return sitk.Mask(image, brain_mask)
 
-    def _normalize_intensity(self, image: sitk.Image, config) -> sitk.Image:
-        self.logger.info(f"Normalizing intensity using: {config.normalization_method}")
+    def _normalize_intensity(self, image: 'sitk.Image', method: str) -> 'sitk.Image':
+        self.logger.info(f"Normalizing intensity using: {method}")
         # Placeholder for real normalization. Z-Score is common.
-        if config.normalization_method == "ZScore":
+        if method == "ZScore":
             stats = sitk.StatisticsImageFilter()
             stats.Execute(image)
             mean = stats.GetMean()
             std_dev = stats.GetStandardDeviation()
-            return sitk.ShiftScale(image, -mean, 1.0/std_dev)
+            if std_dev > 0:
+                return sitk.ShiftScale(image, -mean, 1.0/std_dev)
+            return image # or handle case of zero std dev
         # Other methods like WhiteStripe would need more complex implementation
-        self.logger.warning(f"Normalization method '{config.normalization_method}' is not fully implemented.")
+        self.logger.warning(f"Normalization method '{method}' is not fully implemented.")
         return image
 
-    def _discretize_intensity(self, image: sitk.Image, config) -> sitk.Image:
-        self.logger.info(f"Discretizing intensity with {config.discretization_type}: {config.discretization_value}")
+    def _discretize_intensity(self, image: 'sitk.Image', dis_type: str, value: float) -> 'sitk.Image':
+        self.logger.info(f"Discretizing intensity with {dis_type}: {value}")
         # Implementation for intensity discretization
-        if config.discretization_type == "FixedBinWidth":
+        if dis_type == "FixedBinWidth":
             # Bin width
-            bin_width = config.discretization_value
+            bin_width = value
             # Formula: floor( (I - min) / bin_width ) * bin_width + min
             # Using SimpleITK filters is safer
             return sitk.Discretize(image, binWidth=bin_width)
-        elif config.discretization_type == "FixedBinCount":
+        elif dis_type == "FixedBinCount":
             # Bin count
-            num_bins = int(config.discretization_value)
+            num_bins = int(value)
             return sitk.Discretize(image, numberOfBins=num_bins)
         return image 

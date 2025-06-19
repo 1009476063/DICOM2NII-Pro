@@ -26,9 +26,17 @@ from typing import Optional
 # 添加src目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+# Core logic imports (placed at top level)
+from src import __version__, __author__
+from src.core.processing_controller import ProcessingController
+from src.auth.license_manager import IGPSLicenseManager
+from src.core.conversion_config import (
+    BaseConversionConfig, CTConversionConfig, MRIConversionConfig,
+    MammographyConversionConfig, UltrasoundConversionConfig
+)
+
 # 定义全局变量，以便在try/except块之外访问
 GUI_AVAILABLE = False
-CORE_LOGIC_AVAILABLE = False
 
 # 导入GUI模块 (PyQt6)
 try:
@@ -36,20 +44,39 @@ try:
         QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
         QTabWidget, QLabel, QListWidget, QStackedWidget, QSplitter,
         QPushButton, QFileDialog, QTextEdit, QStatusBar, QListWidgetItem,
-        QGroupBox, QCheckBox, QLineEdit, QComboBox, QProgressBar, QMessageBox
+        QGroupBox, QCheckBox, QLineEdit, QComboBox, QProgressBar, QMessageBox,
+        QMenu, QStyle
     )
-    from PyQt6.QtGui import QAction, QIcon
-    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QAction, QIcon, QDesktopServices
+    from PyQt6.QtCore import Qt, QUrl, pyqtSignal
     GUI_AVAILABLE = True
 
     # Import custom widgets
     from src.gui.settings_tab import SettingsTab
+except ImportError as e:
+    # Set GUI_AVAILABLE to False if any GUI import fails
+    GUI_AVAILABLE = False
+    print(f"GUI模块导入失败: {e}")
 
-    # ===================================================================
-    #  GUI Class Definitions
-    #  All classes that depend on PyQt6 must be defined inside this
-    #  'try' block to avoid NameError when PyQt6 is not installed.
-    # ===================================================================
+
+# ===================================================================
+#  GUI Class Definitions
+#  All classes that depend on PyQt6 must be defined inside this
+#  'if' block to avoid NameError when PyQt6 is not installed.
+# ===================================================================
+if GUI_AVAILABLE:
+    class ClickableLabel(QLabel):
+        """A QLabel that emits a 'clicked' signal when clicked."""
+        def __init__(self, url: str, text: str = "", parent=None):
+            super().__init__(text, parent)
+            self.url = QUrl(url)
+            self.setOpenExternalLinks(False)
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        def mouseReleaseEvent(self, event):
+            if event.button() == Qt.MouseButton.LeftButton:
+                QDesktopServices.openUrl(self.url)
+            super().mouseReleaseEvent(event)
 
     class CTSettingsWidget(QWidget):
         """CT图像预处理设置面板"""
@@ -280,17 +307,27 @@ try:
 
     class PreprocessingTab(QWidget):
         """图像预处理功能总面板"""
-        def __init__(self, parent=None):
+        trial_used = pyqtSignal() # Signal to indicate a trial has been consumed
+
+        def __init__(self, license_manager: IGPSLicenseManager, parent=None):
             super().__init__(parent)
-            self.controller = ProcessingController()
+            self.controller = ProcessingController(license_manager=license_manager)
             main_layout = QVBoxLayout(self)
 
             # 1. 输入输出设置
             io_group = self._create_io_group()
             main_layout.addWidget(io_group)
 
-            # 2. 核心设置区域 (类型选择 + 参数面板)
-            splitter = QSplitter(Qt.Orientation.Horizontal)
+            # --- 创建一个新的主分割器，用于左右布局 ---
+            main_splitter = QSplitter(Qt.Orientation.Horizontal)
+
+            # --- 左侧面板：影像类型选择和参数设置 ---
+            left_panel = QWidget()
+            left_layout = QVBoxLayout(left_panel)
+            left_layout.setContentsMargins(0,0,0,0)
+
+            # 核心设置区域 (类型选择 + 参数面板)
+            settings_splitter = QSplitter(Qt.Orientation.Horizontal)
             
             self.modality_list = QListWidget()
             self.modality_list.addItems(["CT", "MRI", "钼靶 (Mammography)", "超声 (Ultrasound)"])
@@ -307,16 +344,23 @@ try:
             self.settings_stack.addWidget(self.mammo_settings)
             self.settings_stack.addWidget(self.us_settings)
             
-            splitter.addWidget(self.modality_list)
-            splitter.addWidget(self.settings_stack)
-            splitter.setSizes([150, 600])
+            settings_splitter.addWidget(self.modality_list)
+            settings_splitter.addWidget(self.settings_stack)
+            settings_splitter.setSizes([150, 450]) # 调整左侧内部比例
+
+            left_layout.addWidget(settings_splitter)
             
-            main_layout.addWidget(splitter)
+            # --- 右侧面板：控制与日志 ---
+            right_panel = self._create_log_group()
+            
+            # --- 将左右面板添加到主分割器 ---
+            main_splitter.addWidget(left_panel)
+            main_splitter.addWidget(right_panel)
+            main_splitter.setSizes([600, 300]) # 设置初始比例为 2:1
 
-            # 3. 控制和日志区域
-            log_group = self._create_log_group()
-            main_layout.addWidget(log_group)
+            main_layout.addWidget(main_splitter)
 
+            # 连接信号和槽
             self.modality_list.currentRowChanged.connect(self.settings_stack.setCurrentIndex)
             self.modality_list.setCurrentRow(0)
 
@@ -487,6 +531,7 @@ try:
                     
                     if ret == QMessageBox.StandardButton.Yes:
                         license_manager.use_trial() # Consume one trial
+                        self.trial_used.emit() # Notify UI to update
                     else:
                         self.log_display.append("用户取消了操作。")
                         return
@@ -522,11 +567,20 @@ try:
             super().__init__()
             self.setWindowTitle(f"Image Group Processing System - v{__version__}")
             self.setGeometry(100, 100, 1200, 800)
+            self.license_manager = IGPSLicenseManager()
 
             self._create_menu()
             self._create_central_widget()
             self._create_status_bar()
             self.show()
+            
+            # Connect signals to slots for UI updates
+            self.settings_tab.license_activated.connect(self.update_status_bar)
+            self.settings_tab.license_activated.connect(self.settings_tab.update_status_display)
+            self.preprocessing_tab.trial_used.connect(self.update_status_bar)
+            self.preprocessing_tab.trial_used.connect(self.settings_tab.update_status_display)
+
+            self.update_status_bar()
 
         def _create_menu(self):
             menu_bar = self.menuBar()
@@ -549,7 +603,7 @@ try:
             self.tabs = QTabWidget()
 
             # 1. 图像预处理
-            self.preprocessing_tab = PreprocessingTab(self)
+            self.preprocessing_tab = PreprocessingTab(self.license_manager, self)
             self.tabs.addTab(self.preprocessing_tab, "图像预处理")
 
             # 2. 特征提取
@@ -565,7 +619,7 @@ try:
             self.tabs.addTab(self.model_building_tab, "模型构建")
 
             # 5. 设置
-            self.settings_tab = SettingsTab(self)
+            self.settings_tab = SettingsTab(self.license_manager, self)
             self.tabs.addTab(self.settings_tab, "设置")
 
             self.setCentralWidget(self.tabs)
@@ -582,37 +636,83 @@ try:
                     break
 
         def _create_status_bar(self):
-            """创建状态栏"""
+            """创建并布局状态栏"""
             self.status_bar = QStatusBar()
             self.setStatusBar(self.status_bar)
-            self.status_bar.showMessage("准备就绪", 5000)
+            
+            # --- Main container widget for the status bar ---
+            status_widget = QWidget()
+            status_layout = QHBoxLayout(status_widget)
+            status_layout.setContentsMargins(10, 0, 10, 0) # left, top, right, bottom
 
-            # 添加版权信息
+            # --- 1. License Status (Left) ---
+            self.license_status_label = QLabel("授权状态未知")
+            status_layout.addWidget(self.license_status_label)
+            
+            status_layout.addStretch(1)
+
+            # --- 2. Copyright (Center) ---
             copyright_label = QLabel("© 2025 TanX. All Rights Reserved.")
-            self.status_bar.addPermanentWidget(copyright_label)
+            copyright_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            status_layout.addWidget(copyright_label)
 
-except ImportError as e:
-    GUI_AVAILABLE = False
-    # We can't define the classes above, so we can't do much.
-    # The message will be printed to the console upon startup.
+            status_layout.addStretch(1)
 
-# 导入核心逻辑
-try:
-    from src.core.conversion_config import (
-        CTConversionConfig, MRIConversionConfig, MammographyConversionConfig, UltrasoundConversionConfig
-    )
-    from src.core.processing_controller import ProcessingController
-    from src.auth.license_manager import IGPSLicenseManager
-    CORE_LOGIC_AVAILABLE = True
-except ImportError as e:
-    CORE_LOGIC_AVAILABLE = False
-    print(f"⚠️ 核心逻辑模块导入失败: {e}")
+            # --- 3. External Links (Right) ---
+            links_layout = QHBoxLayout()
+            
+            # Create icon objects using paths relative to the main script
+            app_dir = Path(__file__).parent
+            github_icon = QIcon(str(app_dir / "resources" / "github-mark.png"))
+            home_icon = QIcon(str(app_dir / "resources" / "home.png"))
+            blog_icon = QIcon(str(app_dir / "resources" / "blogger.png"))
+
+            # GitHub Icon
+            github_label = ClickableLabel("https://github.com/1009476063/IGPS", "")
+            github_label.setPixmap(github_icon.pixmap(16, 16))
+            github_label.setToolTip("查看项目GitHub仓库")
+            links_layout.addWidget(github_label)
+
+            # Home Icon
+            home_label = ClickableLabel("https://alist.1661688.xyz", "")
+            home_label.setPixmap(home_icon.pixmap(16, 16))
+            home_label.setToolTip("访问作者主页")
+            links_layout.addWidget(home_label)
+
+            # Blog Icon
+            blog_label = ClickableLabel("https://blog.1661688.xyz", "")
+            blog_label.setPixmap(blog_icon.pixmap(16, 16))
+            blog_label.setToolTip("访问作者博客")
+            links_layout.addWidget(blog_label)
+
+            status_layout.addLayout(links_layout)
+            
+            self.status_bar.addWidget(status_widget, 1)
+
+        def update_status_bar(self):
+            """根据授权状态更新状态栏显示"""
+            info = self.license_manager.get_license_info()
+            if info:
+                status_text = f"<font color='green'><b>授权成功</b> (剩余 {info.days_remaining} 天)</font>"
+            else:
+                remaining_trials = self.license_manager.get_remaining_trials()
+                if remaining_trials > 0:
+                    status_text = f"<font color='orange'><b>试用模式</b> (剩余 {remaining_trials} 次)</font>"
+                else:
+                    status_text = f"<font color='red'><b>授权已失效</b></font>"
+            self.license_status_label.setText(status_text)
 
 
-__version__ = "2.0.0"
-__author__ = "TanX"
-__copyright__ = "Copyright 2025, Image Group Processing System"
-__github__ = "https://github.com/TanX-009/IGPS" # Placeholder
+# ===================================================================
+#  Core Logic (Non-GUI)
+# ===================================================================
+# Dummy classes for when GUI is not available, to allow core logic to run
+if not GUI_AVAILABLE:
+    class QWidget: pass
+    class QObject: pass
+    class QMainWindow: pass
+    class PreprocessingTab(QWidget): pass
+    # Add any other required base classes
 
 def parse_arguments():
     """解析命令行参数"""
@@ -687,8 +787,8 @@ def run_gui_mode():
 def run_license_mode():
     """运行许可证管理模式 (交互式)"""
     print("🔑 许可证管理模式...")
-    if not CORE_LOGIC_AVAILABLE:
-        print("无法启动许可证模式，因为核心逻辑模块未能成功导入。")
+    if not GUI_AVAILABLE:
+        print("无法启动许可证模式，因为GUI模块未能成功导入。")
         return
 
     try:

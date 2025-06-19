@@ -288,8 +288,8 @@ class IGPSLicenseManager:
         # 3. 如果未激活，则创建新的授权记录
         hardware_id = self.get_hardware_fingerprint()
         activation_date = datetime.now()
-        # 默认有效期为36500天 (约100年), 相当于永久
-        expire_date = activation_date + timedelta(days=36500)
+        # 有效期设置为90天
+        expire_date = activation_date + timedelta(days=90)
 
         new_license_info = LicenseInfo(
             license_key=license_code,
@@ -310,23 +310,38 @@ class IGPSLicenseManager:
         hardware_id = self.get_hardware_fingerprint()
 
         for code, info_dict in self.license_data.items():
-            info = LicenseInfo(**info_dict)
-            if info.hardware_id == hardware_id and not info.is_expired:
-                # 找到一个与当前硬件匹配且未过期的授权
-                return True
+            current_info = info_dict.copy()
+            # 兼容旧版可能存在的字段
+            current_info.pop('activation_date', None)
+            if 'expiry_date' in current_info:
+                current_info['expire_date'] = current_info.pop('expiry_date')
+
+            try:
+                info = LicenseInfo(**current_info)
+                if info.hardware_id == hardware_id and not info.is_expired:
+                    # 找到一个与当前硬件匹配且未过期的授权
+                    return True
+            except TypeError:
+                continue  # Skip malformed entries
         
         return False
         
     def get_license_info(self) -> Optional[LicenseInfo]:
         """获取当前环境下已激活的有效授权信息"""
-        if not self.is_licensed():
-            return None
-        
         hardware_id = self.get_hardware_fingerprint()
         for code, info_dict in self.license_data.items():
-            info = LicenseInfo(**info_dict)
-            if info.hardware_id == hardware_id and not info.is_expired:
-                return info
+            current_info = info_dict.copy()
+            # 兼容旧版可能存在的字段
+            current_info.pop('activation_date', None)
+            if 'expiry_date' in current_info:
+                current_info['expire_date'] = current_info.pop('expiry_date')
+
+            try:
+                info = LicenseInfo(**current_info)
+                if info.hardware_id == hardware_id and not info.is_expired:
+                    return info
+            except TypeError:
+                continue
         return None
 
     def can_use_trial(self) -> bool:
