@@ -13,6 +13,8 @@ import nibabel as nib
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
+import SimpleITK as sitk
+from ...utils.image_processing import correct_image_orientation, remove_edge_artifacts
 
 from ..exceptions import ConversionError, DicomValidationError
 from .base import BaseDICOMConverter
@@ -402,4 +404,33 @@ class MammographyConverter(BaseDICOMConverter):
             return info
             
         except Exception as e:
-            return {"error": f"获取转换信息失败: {e}"} 
+            return {"error": f"获取转换信息失败: {e}"}
+
+    def _process_series(self, series_dir: Path, output_filename: Path) -> sitk.Image:
+        """
+        Processes a single mammography series.
+        This now includes orientation correction and artifact removal based on config.
+        """
+        reader = sitk.ImageSeriesReader()
+        dicom_names = reader.GetGDCMSeriesFileNames(str(series_dir))
+        if not dicom_names:
+            raise FileNotFoundError(f"No DICOM files found in series: {series_dir}")
+        reader.SetFileNames(dicom_names)
+        
+        try:
+            image = reader.Execute()
+        except Exception as e:
+            self.log(f"Failed to read DICOM series with SimpleITK: {e}", level="ERROR")
+            self.log("Attempting fallback with pydicom...", level="INFO")
+            image = self._fallback_dcm_reader(series_dir)
+
+        # --- 新增的影像组学预处理步骤 ---
+        if self.config.correct_orientation:
+            self.log("Attempting to correct image orientation...", level="INFO")
+            image = correct_image_orientation(image)
+
+        if self.config.remove_edge_info:
+            self.log("Attempting to remove edge artifacts...", level="INFO")
+            image = remove_edge_artifacts(image)
+        
+        return image 

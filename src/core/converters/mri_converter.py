@@ -13,6 +13,8 @@ import nibabel as nib
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
+import SimpleITK as sitk
+from ...utils.image_processing import normalize_intensity, discretize_intensity
 
 from ..exceptions import ConversionError, DicomValidationError
 from .base import BaseDICOMConverter
@@ -358,4 +360,36 @@ class MRIConverter(BaseDICOMConverter):
             return info
             
         except Exception as e:
-            return {"error": f"获取转换信息失败: {e}"} 
+            return {"error": f"获取转换信息失败: {e}"}
+
+    def _process_series(self, series_dir: Path, output_filename: Path) -> sitk.Image:
+        image = super()._process_series(series_dir, output_filename)
+
+        # --- N4 Bias Field Correction ---
+        if self.config.n4_bias_correction:
+            self.log("Applying N4 Bias Field Correction...", level="INFO")
+            # N4 needs a mask. For non-brain, a simple Otsu-based mask is a reasonable start.
+            mask_image = sitk.OtsuThreshold(image, 0, 1, 200)
+            corrector = sitk.N4BiasFieldCorrectionImageFilter()
+            corrected_image = corrector.Execute(image, mask_image)
+            image = corrected_image
+
+        # --- Intensity Normalization ---
+        if self.config.normalization_method != "None":
+            self.log(f"Applying {self.config.normalization_method} normalization...", level="INFO")
+            image = normalize_intensity(image, self.config.normalization_method)
+
+        # --- Skull Stripping (if applicable) ---
+        if self.config.skull_stripping:
+            self.log("Applying skull stripping...", level="INFO")
+            # This is a placeholder for a real skull stripping algorithm
+            # For a real implementation, libraries like DeepBrain, HD-BET, or ANTs would be used.
+            mask = sitk.OtsuThreshold(image, 0, 1, 200)
+            image = sitk.Mask(image, mask)
+
+        # --- Intensity Discretization ---
+        if self.config.discretize:
+            self.log(f"Applying intensity discretization ({self.config.discretization_type})...", level="INFO")
+            image = discretize_intensity(image, self.config.discretization_type, self.config.discretization_value)
+
+        return image 
