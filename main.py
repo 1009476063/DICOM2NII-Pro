@@ -318,8 +318,16 @@ if GUI_AVAILABLE:
             io_group = self._create_io_group()
             main_layout.addWidget(io_group)
 
-            # 2. 核心设置区域 (类型选择 + 参数面板)
-            splitter = QSplitter(Qt.Orientation.Horizontal)
+            # --- 创建一个新的主分割器，用于左右布局 ---
+            main_splitter = QSplitter(Qt.Orientation.Horizontal)
+
+            # --- 左侧面板：影像类型选择和参数设置 ---
+            left_panel = QWidget()
+            left_layout = QVBoxLayout(left_panel)
+            left_layout.setContentsMargins(0,0,0,0)
+
+            # 核心设置区域 (类型选择 + 参数面板)
+            settings_splitter = QSplitter(Qt.Orientation.Horizontal)
             
             self.modality_list = QListWidget()
             self.modality_list.addItems(["CT", "MRI", "钼靶 (Mammography)", "超声 (Ultrasound)"])
@@ -336,16 +344,23 @@ if GUI_AVAILABLE:
             self.settings_stack.addWidget(self.mammo_settings)
             self.settings_stack.addWidget(self.us_settings)
             
-            splitter.addWidget(self.modality_list)
-            splitter.addWidget(self.settings_stack)
-            splitter.setSizes([150, 600])
+            settings_splitter.addWidget(self.modality_list)
+            settings_splitter.addWidget(self.settings_stack)
+            settings_splitter.setSizes([150, 450]) # 调整左侧内部比例
+
+            left_layout.addWidget(settings_splitter)
             
-            main_layout.addWidget(splitter)
+            # --- 右侧面板：控制与日志 ---
+            right_panel = self._create_log_group()
+            
+            # --- 将左右面板添加到主分割器 ---
+            main_splitter.addWidget(left_panel)
+            main_splitter.addWidget(right_panel)
+            main_splitter.setSizes([600, 300]) # 设置初始比例为 2:1
 
-            # 3. 控制和日志区域
-            log_group = self._create_log_group()
-            main_layout.addWidget(log_group)
+            main_layout.addWidget(main_splitter)
 
+            # 连接信号和槽
             self.modality_list.currentRowChanged.connect(self.settings_stack.setCurrentIndex)
             self.modality_list.setCurrentRow(0)
 
