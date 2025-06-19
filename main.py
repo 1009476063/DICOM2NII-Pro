@@ -243,35 +243,34 @@ if GUI_AVAILABLE:
             self.norm_combo = QComboBox()
             self.norm_combo.addItems([
                 "无 (None)",
-                "Z-Score 标准化 (每个图像独立)",
+                "Z-Score 标准化",
                 "白条纹法 (WhiteStripe)",
                 "直方图匹配 (Histogram Matching)"
             ])
-            self.norm_combo.setToolTip("对图像强度值进行标准化，以消除不同扫描之间的差异。")
+            self.norm_combo.setToolTip("对图像强度值进行标准化，以消除不同扫描之间的差异。Z-Score最常用。")
             norm_layout.addWidget(self.norm_combo)
 
             norm_group.setLayout(norm_layout)
             main_layout.addWidget(norm_group)
 
-            # --- 强度离散化 (for MRI) ---
-            self.mri_discretization_group = QGroupBox("强度离散化 (Intensity Discretization)")
-            self.mri_discretization_group.setCheckable(True)
-            self.mri_discretization_group.setChecked(False)
-            mri_discretization_layout = QVBoxLayout(self.mri_discretization_group)
+            # --- 强度离散化 ---
+            self.discretization_group = QGroupBox("强度离散化 (Intensity Discretization)")
+            self.discretization_group.setCheckable(True)
+            self.discretization_group.setChecked(False)
+            discretization_layout = QVBoxLayout(self.discretization_group)
 
-            self.mri_dis_type_combo = QComboBox()
-            self.mri_dis_type_combo.addItems(["固定斌宽 (Fixed Bin Width)", "固定斌数量 (Fixed Bin Count)"])
+            self.discretization_type_combo = QComboBox()
+            self.discretization_type_combo.addItems(["固定斌宽 (Fixed Bin Width)", "固定斌数量 (Fixed Bin Count)"])
             
-            self.mri_dis_value_edit = QLineEdit("0.5")
-            self.mri_dis_value_edit.setToolTip("对于固定斌宽，这是归一化后的强度单位；对于固定斌数量，这是整数个数。")
+            self.discretization_value_edit = QLineEdit("25")
+            self.discretization_value_edit.setToolTip("对于固定斌宽，这是HU单位的宽度；对于固定斌数量，这是整数个数。")
 
-            mri_dis_options_layout = QHBoxLayout()
-            mri_dis_options_layout.addWidget(self.mri_dis_type_combo)
-            mri_dis_options_layout.addWidget(self.mri_dis_value_edit)
-            mri_dis_options_layout.addStretch()
-            mri_discretization_layout.addLayout(mri_dis_options_layout)
+            discretization_options_layout = QHBoxLayout()
+            discretization_options_layout.addWidget(self.discretization_type_combo)
+            discretization_options_layout.addWidget(self.discretization_value_edit)
+            discretization_layout.addLayout(discretization_options_layout)
             
-            main_layout.addWidget(self.mri_discretization_group)
+            main_layout.addWidget(self.discretization_group)
 
     class MammographySettingsWidget(QWidget):
         """钼靶图像预处理设置面板"""
@@ -284,13 +283,13 @@ if GUI_AVAILABLE:
             mammo_group = QGroupBox("乳腺钼靶专用处理")
             mammo_layout = QVBoxLayout()
             
-            self.orientation_check = QCheckBox("自动修正图像方位 (推荐)")
-            self.orientation_check.setToolTip("根据DICOM头中的方位信息 (如 LMLO, RCC)，自动旋转图像至标准方向。")
+            self.orientation_check = QCheckBox("校正图像方向至标准解剖位")
+            self.orientation_check.setToolTip("尝试将图像方向翻转或旋转到标准的 'LCC', 'RMLO' 等视图。")
             self.orientation_check.setChecked(True)
             mammo_layout.addWidget(self.orientation_check)
 
-            self.anonymize_check = QCheckBox("移除图像边缘的敏感文本信息")
-            self.anonymize_check.setToolTip("通过将图像顶部和底部10%的区域涂黑，来移除可能存在的患者信息。")
+            self.anonymize_check = QCheckBox("移除边缘标签和伪影")
+            self.anonymize_check.setToolTip("尝试通过阈值和形态学操作移除图像边缘的白色标签或高亮伪影。")
             self.anonymize_check.setChecked(False)
             mammo_layout.addWidget(self.anonymize_check)
             
@@ -485,9 +484,9 @@ if GUI_AVAILABLE:
                         n4_bias_correction=s.n4_correction_check.isChecked(),
                         normalization_method=s.norm_combo.currentText().split(" ")[0],
                         skull_stripping=s.skull_stripping_check.isChecked(),
-                        discretize=s.mri_discretization_group.isChecked(),
-                        discretization_type="FixedBinWidth" if s.mri_dis_type_combo.currentIndex() == 0 else "FixedBinCount",
-                        discretization_value=float(s.mri_dis_value_edit.text())
+                        discretize=s.discretization_group.isChecked(),
+                        discretization_type="FixedBinWidth" if s.discretization_type_combo.currentIndex() == 0 else "FixedBinCount",
+                        discretization_value=float(s.discretization_value_edit.text())
                     )
                 elif modality == "钼靶":
                     if not isinstance(s, MammographySettingsWidget): return None
